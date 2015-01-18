@@ -6,6 +6,8 @@
 *******************************************************************************/
 
 #include "replicationlayer.h"
+#include "fbdkasn1layer.h"
+#include "timerha.h"
 #include "../../arch/devlog.h"
 #include "commfb.h"
 #include "../../core/datatypes/forte_dint.h"
@@ -15,11 +17,10 @@
 using namespace forte::com_infra;
 
 CReplicationlayer::CReplicationlayer(CComLayer* pa_poUpperLayer, CCommFB * pa_poComFB) :
-CComLayer(pa_poUpperLayer, pa_poComFB),
-m_nSocketID(CIPComSocketHandler::scm_nInvalidSocketDescriptor),
-m_nListeningID(CIPComSocketHandler::scm_nInvalidSocketDescriptor),
-m_eInterruptResp(e_Nothing),
-m_unBufFillSize(0){
+CComLayer(pa_poUpperLayer, pa_poComFB), mStatSerBuf(0), mStatSerBufSize(0), mDeserBuf(0), mDeserBufSize(0), 
+mDeserBufPos(0), mDIPos(0), mDOPos(0), m_unBufFillSize(0), m_eInterruptResp(e_Nothing)
+{
+
 }
 
 
@@ -27,8 +28,10 @@ CReplicationlayer::~CReplicationlayer()
 {
 }
 
-EComResponse CReplicationlayer::openConnection(char *){
-	//We don't need layer specific parameters
+EComResponse CReplicationlayer::openConnection(char *pa_Replication){
+
+	Offset = atoi(pa_Replication) * 1000;
+	m_eConnectionState = e_Connected;
 	return e_InitOk;
 }
 
@@ -38,118 +41,128 @@ void CReplicationlayer::closeConnection(){
 	if (0 != m_poBottomLayer){
 		m_poBottomLayer->closeConnection();
 	}
+	m_eConnectionState = e_Disconnected;
 }
 
-EComResponse CReplicationlayer::sendData(void   *pa_pvData, unsigned int pa_unSize){
-	EComResponse eRetVal;
+EComResponse CReplicationlayer::sendData(void *pa_pvData, unsigned int pa_unSize)
+{
+	EComResponse eRetVal = e_ProcessDataNoSocket;
 
-	CIEC_DATE_AND_TIME *DateAndTime = new CIEC_DATE_AND_TIME;
-	DateAndTime->setCurrentTime();
-	TForteUInt64 V;
-	V = DateAndTime->operator TForteUInt64();
-	// += (Offset * 1000); Homay-1/5/2015 Unknow reason
-	(*DateAndTime) = V;
-	char s[50];
-	DateAndTime->toString(s, 50);
-	CIEC_STRING cs(s);
+	if (m_poBottomLayer != 0)
+	{
+		int repDataSize = pa_unSize + 9;
 
-	CIEC_ANY* pc = (CIEC_ANY*)malloc((pa_unSize + 2)*sizeof(CIEC_ANY));
+		TForteByte* recvData = new TForteByte[repDataSize];  //Date_And_Time need 9 bytes for serialisation
+		
+		CIEC_DATE_AND_TIME *dateTime = new CIEC_DATE_AND_TIME;
+		dateTime->setCurrentTime();
+		tm *tmDateTime = dateTime->getTimeStruct();
+		dateTime->setDateAndTime(*tmDateTime, Offset);
+	
+		int nBuf = CFBDKASN1ComLayer::serializeDataPoint(recvData, repDataSize, *dateTime);
 
-	memcpy((void *)&(pc[0]), (void *)pa_pvData, (pa_unSize)*sizeof(CIEC_ANY));
-	memcpy((void *)&(pc[pa_unSize]), (void *)(&cs), sizeof(CIEC_ANY));
-	memcpy((void *)&(pc[pa_unSize + 1]), (void *)(&cs), sizeof(CIEC_ANY));
+		if (-1 != nBuf)
+		{
+			memcpy(&(recvData[nBuf]), pa_pvData, pa_unSize);
+			eRetVal = m_poBottomLayer->sendData(recvData, repDataSize);
+		}
+		else
+		{
+			eRetVal = e_ProcessDataDataTypeError;
+			DEVLOG_ERROR("Replication:: serializeData failed\n");
+		}
 
-
-	eRetVal = m_poBottomLayer->sendData(static_cast<void*>(pc), pa_unSize + 2);
-
-
+		//if (0 != recvData)
+		//	delete[] recvData;
+	}
 	return eRetVal;
 }
 
-EComResponse CReplicationlayer::recvData(const void *pa_pvData, unsigned int pa_unSize){
-
+EComResponse CReplicationlayer::recvData(const void *pa_pvData, unsigned int pa_unSize)
+{
+	CIEC_DATE_AND_TIME recvDateTime;
+	CIEC_DATE_AND_TIME *currDateTime = new CIEC_DATE_AND_TIME;
+	EComResponse eRetVal = e_Nothing;
 	TForteByte *recvData = (TForteByte *)pa_pvData;
-	CIEC_STRING* pcs = (CIEC_STRING*)pa_pvData;
 
-	//CIEC_DATE_AND_TIME *DateAndTime = new CIEC_DATE_AND_TIME;
-	//DateAndTime->fromString(pcs->getValue());
-	//TForteUInt64 val = (DateAndTime->operator TForteUInt64());
+	if (m_poFb)
+	{
 
-	CIEC_DATE_AND_TIME x;
-	x.setCurrentTime();
-	TForteUInt64 y;
-	y = x.operator TForteUInt64();
+		int nBuf = CFBDKASN1ComLayer::deserializeDataPoint(static_cast<const TForteByte*>(recvData), pa_unSize, recvDateTime);
+		if (0 <= nBuf)
+		{
+			//we succesfully got the data for the recieved Date_And_Time
 
-	m_poTopLayer->recvData((void *)&pcs[0], pa_unSize);
-	return e_ProcessDataOk;
-}
+			currDateTime->setCurrentTime();
 
-void CReplicationlayer::handledConnectedDataRecv(){
-	// in case of fragmented packets, it can occur that the buffer is full,
-	// to avoid calling receiveDataFromTCP with a buffer size of 0 wait until buffer is larger 0
-	while ((cg_unIPLayerRecvBufferSize - m_unBufFillSize) <= 0){
-#ifdef WIN32
-		Sleep(0);
-#else
-		sleep(0);
-#endif
-	}
-	if (CIPComSocketHandler::scm_nInvalidSocketDescriptor != m_nSocketID){
-		// TODO: sync buffer and bufFillSize
-		int nRetVal = 0;
-		switch (m_poFb->getComServiceType()){
-		case e_Server:
-		case e_Client:
-			nRetVal =
-				CIPComSocketHandler::receiveDataFromTCP(m_nSocketID, &m_acRecvBuffer[m_unBufFillSize], cg_unIPLayerRecvBufferSize
-				- m_unBufFillSize);
-			break;
-		case e_Publisher:
-			//do nothing as subscribers cannot receive data
-			break;
-		case e_Subscriber:
-			nRetVal =
-				CIPComSocketHandler::receiveDataFromUDP(m_nSocketID, &m_acRecvBuffer[m_unBufFillSize], cg_unIPLayerRecvBufferSize
-				- m_unBufFillSize);
-			break;
-		}
-		switch (nRetVal){
-		case 0:
-			DEVLOG_INFO("Connection closed by peer\n");
-			m_eInterruptResp = e_InitTerminated;
-			closeSocket(&m_nSocketID);
-			if (e_Server == m_poFb->getComServiceType()){
-				//Move server into listening mode again
-				m_eConnectionState = e_Listening;
+			if (*currDateTime < recvDateTime)
+			{
+				//Crate Pending Packet for the replication layer queue
+				PendingData* penData = new PendingData;
+				penData->pa_pvData = (TForteByte*)recvData;
+				penData->pa_unSize = pa_unSize;
+				penData->pa_Offset = new CIEC_TIME(Offset);
+
+ 				memcpy(penData->pa_pvData, recvData, pa_unSize);//Create new copy of data packet
+				repQueue.push(penData);//Put the packt in queue
+
+				STimedFBListEntry *sTimeFBListEntry = new STimedFBListEntry();
+				sTimeFBListEntry->m_eType = e_SingleShot;
+				sTimeFBListEntry->m_poTimedFB = m_poFb;
+				sTimeFBListEntry->m_stTimeOut.m_nLowerValue = 50000000;
+				sTimeFBListEntry->m_stTimeOut.m_nUpperValue = 50000000;
+
+				CTimerHandler::sm_poFORTETimer->registerTimedFB(sTimeFBListEntry, *penData->pa_Offset);
+				eRetVal = e_InitOk;
+
+				//we successfully received data
+				m_unBufFillSize += eRetVal;
+				m_eInterruptResp = e_ProcessDataOk;
+				m_poFb->interruptCommFB(this);//Call CommFB intrrupt
 			}
-			break;
-		case -1:
-			m_eInterruptResp = e_ProcessDataRecvFaild;
-			break;
+			else
+				eRetVal = m_poTopLayer->recvData(static_cast<const TForteByte*>(recvData)+nBuf, pa_unSize - nBuf);
+		}
+		else
+			eRetVal = e_ProcessDataRecvFaild;
+	}
+	
+	
+	return eRetVal;
+}
+
+
+
+EComResponse CReplicationlayer::processInterrupt()
+{
+	PendingData *penData = new PendingData();
+	unsigned int nBuf = 9; //\The length of DateTime
+	if (e_ProcessDataOk == m_eInterruptResp){
+		switch (m_eConnectionState){
+		case e_Connected:
+			if ((0 < m_unBufFillSize) && 0 != m_poTopLayer)
+			{
+				penData = repQueue.front();
+				repQueue.pop(); //TODO remove the added sTimeFBListEntry from sm_poFORTETimer list
+				
+				/*CIEC_DATE_AND_TIME *currDateTime = new CIEC_DATE_AND_TIME;
+				currDateTime->setCurrentTime();
+
+				CIEC_DATE_AND_TIME *dateTime = new CIEC_DATE_AND_TIME;
+				dateTime->setCurrentTime();
+				tm *tmDateTime = dateTime->getTimeStruct();
+				dateTime->setDateAndTime(*tmDateTime, Offset);
+				*/
+				m_eInterruptResp = m_poTopLayer->recvData(static_cast<const TForteByte*>(penData->pa_pvData) + nBuf, penData->pa_unSize - nBuf);
+				m_unBufFillSize = 0;
+			}
+				break;
+		case e_Disconnected:
+		case e_Listening:
+		case e_ConnectedAndListening:
 		default:
-			//we successfully received data
-			m_unBufFillSize += nRetVal;
-			m_eInterruptResp = e_ProcessDataOk;
 			break;
 		}
-		m_poFb->interruptCommFB(this);
 	}
+	return m_eInterruptResp;
 }
-
-void CReplicationlayer::handleConnectionAttemptInConnected(){
-	//accept and immediately close the connection to tell the client that we are not available
-	//sofar the best option I've found for handling single connection servers
-	CIPComSocketHandler::TSocketDescriptor socketID = CIPComSocketHandler::acceptTCPConnection(m_nListeningID);
-	CIPComSocketHandler::closeSocket(socketID);
-}
-
-void CReplicationlayer::closeSocket(CIPComSocketHandler::TSocketDescriptor *pa_nSocketID){
-	if (CIPComSocketHandler::scm_nInvalidSocketDescriptor != *pa_nSocketID){
-		CIPComSocketHandler::getInstance().removeComCallback(*pa_nSocketID);
-		CIPComSocketHandler::closeSocket(*pa_nSocketID);
-		*pa_nSocketID = CIPComSocketHandler::scm_nInvalidSocketDescriptor;
-	}
-}
-
-
-
