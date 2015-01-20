@@ -13,10 +13,11 @@ namespace forte {
 
 		struct PendingData
 		{
-			TForteByte* pa_pvData = NULL;
-			unsigned int pa_unSize = 0;
-			CIEC_TIME* pa_Offset = NULL;
+			TForteByte* pa_pvData = NULL;//Received data serialization byte
+			unsigned int pa_unSize = 0;//The size after adding Date & Time
+			CIEC_TIME* pa_Offset = NULL;//Offset Value
 		};
+
 		class CReplicationlayer :public CComLayer
 		{
 		public:
@@ -35,7 +36,7 @@ namespace forte {
 
 		private:
 			
-
+			int digit_to_int(char pa_char);
 			EComResponse openConnection(char *pa_acLayerParameter);
 			void closeConnection();
 
@@ -53,7 +54,7 @@ namespace forte {
 
 			TForteByte mDIPos;
 			TForteByte mDOPos;
-			unsigned long Offset;
+			CIEC_TIME Offset;
 		
 		};
 	}
