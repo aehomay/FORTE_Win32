@@ -327,8 +327,7 @@ void CCommFB::interruptCommFB(CComLayer *pa_poComLayer){
   }
   else{
     //TODO to many interrupts received issue error msg
-  }//TODO: Adding new interrupt in replication layer can be extended the m_apoInterruptQueue queue and it 
-  //receiveData() will be effect on processIntrrupt() calling in this method, HOMAY-1/17/15
+  }
 }
 
 char * CCommFB::getDefaultIDString(){
