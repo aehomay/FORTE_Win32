@@ -118,9 +118,7 @@ EComResponse CReplicationlayer::recvData(const void *pa_pvData, unsigned int pa_
 				STimedFBListEntry *sTimeFBListEntry = new STimedFBListEntry();
 				sTimeFBListEntry->m_eType = e_SingleShot;
 				sTimeFBListEntry->m_poTimedFB = m_poFb;
-		/*		sTimeFBListEntry->m_stTimeOut.m_nLowerValue = 0;
-				sTimeFBListEntry->m_stTimeOut.m_nUpperValue = 0;
-				sTimeFBListEntry->m_nInterval = 0;*/
+
 				
 				CTimerHandler::sm_poFORTETimer->registerTimedFB(sTimeFBListEntry, *penData->pa_Offset);
 				
