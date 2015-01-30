@@ -20,7 +20,9 @@ CReplicationlayer::CReplicationlayer(CComLayer* pa_poUpperLayer, CCommFB * pa_po
 CComLayer(pa_poUpperLayer, pa_poComFB), mStatSerBuf(0), mStatSerBufSize(0), mDeserBuf(0), mDeserBufSize(0), 
 mDeserBufPos(0), mDIPos(0), mDOPos(0), m_unBufFillSize(0), m_eInterruptResp(e_Nothing)
 {
-
+	CIEC_DATE_AND_TIME *genDateTime = new CIEC_DATE_AND_TIME;
+	genDateTime->setCurrentTime();
+	genTimeStruct = *genDateTime->getTimeStruct();
 }
 
 CReplicationlayer::~CReplicationlayer()
@@ -29,28 +31,15 @@ CReplicationlayer::~CReplicationlayer()
 
 EComResponse CReplicationlayer::openConnection(char *pa_Replication){
 
-	//Offset = atoi(pa_Replication) * FORTE_TIME_BASE_UNITS_PER_SECOND;
-	//TForteInt32 paOffset = strtol(pa_Replication, NULL, 10);
-	//Offset = paOffset * FORTE_TIME_BASE_UNITS_PER_SECOND;
 	Offset = CIEC_TIME(pa_Replication);
 	m_eConnectionState = e_Connected;
 	return e_InitOk;
 
 }
 
-//int CReplicationlayer::digit_to_int(char *pa_char)
-//{
-//	char str[2];
-//	int number = 0;
-//	str[0] = pa_char;
-//	str[1] = '\0';
-//	number = (int)strtol(str, NULL, 10);
-//	return number; 
-//}
 
-void CReplicationlayer::closeConnection(){
-	// we don't need to do anything specific on closing when closing the connection
-	//so directly close the bottom layer if there
+void CReplicationlayer::closeConnection()
+{
 	if (0 != m_poBottomLayer){
 		m_poBottomLayer->closeConnection();
 	}
@@ -71,7 +60,7 @@ EComResponse CReplicationlayer::sendData(void *pa_pvData, unsigned int pa_unSize
 		dateTime->setCurrentTime();
 		//Adding the Offset 
 		tm *tmDateTime = dateTime->getTimeStruct();
-		dateTime->setDateAndTime(*tmDateTime, Offset);
+		dateTime->setDateAndTime(genTimeStruct, Offset);
 	
 		int nBuf = CFBDKASN1ComLayer::serializeDataPoint(recvData, repDataSize, *dateTime);
 
@@ -111,7 +100,7 @@ EComResponse CReplicationlayer::recvData(const void *pa_pvData, unsigned int pa_
 				penData->pa_pvData = (TForteByte*)recvData;
 				penData->pa_unSize = pa_unSize;
 				penData->pa_Offset = new CIEC_TIME(Offset);
-
+				penData->pa_recvDateTime = (recvDateTime.operator TForteUInt64());
  				memcpy(penData->pa_pvData, recvData, pa_unSize);//Create new copy of data packet
 				repQueue.push(penData);//Put the packt in queue
 

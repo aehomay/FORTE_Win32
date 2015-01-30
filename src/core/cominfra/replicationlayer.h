@@ -16,6 +16,11 @@ namespace forte {
 			TForteByte* pa_pvData = NULL;//Received data serialization byte
 			unsigned int pa_unSize = 0;//The size after adding Date & Time
 			CIEC_TIME* pa_Offset = NULL;//Offset Value
+			TForteUInt64 pa_recvDateTime=0;
+			bool operator<(const PendingData& pen)
+			{
+				return pa_recvDateTime < pen.pa_recvDateTime;
+			}
 		};
 
 		class CReplicationlayer :public CComLayer
@@ -32,10 +37,11 @@ namespace forte {
 			std::queue<PendingData*> repQueue;
 		
 		protected:
-			
+		
 
 		private:
-			
+
+			tm genTimeStruct;
 			int digit_to_int(char pa_char);
 			EComResponse openConnection(char *pa_acLayerParameter);
 			void closeConnection();
@@ -55,6 +61,8 @@ namespace forte {
 			TForteByte mDIPos;
 			TForteByte mDOPos;
 			CIEC_TIME Offset;
+	
+
 		
 		};
 	}
