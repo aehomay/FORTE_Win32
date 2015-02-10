@@ -59,7 +59,6 @@ EComResponse CMOReplicationlayer::sendData(void *pa_pvData, unsigned int pa_unSi
 		{
 			memcpy(&(recvData[nBuf]), pa_pvData, pa_unSize);
 			eRetVal = m_poBottomLayer->sendData(recvData, repDataSize);
-			DEVLOG_INFO(">>>>>>>M2OReplication: Function Block sending new message in replication queue (T#%ldms)\n", UInt64ValidDateTime);
 		}
 		else
 		{
@@ -101,15 +100,16 @@ EComResponse CMOReplicationlayer::recvData(const void *pa_pvData, unsigned int p
 				sTimeFBListEntry->m_eType = e_SingleShot;
 				sTimeFBListEntry->m_poTimedFB = m_poFb;
 				CTimerHandler::sm_poFORTETimer->registerTimedFB(sTimeFBListEntry, *moData->Offset);//we successfully received data and registered FB into TimedFB list
-				//FORTE_TRACE("\nM2OReplication: Function Block (%s) registered in CTimeHandler\n", this->m_poFb->getInstanceName());
+				FORTE_TRACE("\nM2OReplication: Function Block (%s) registered in CTimeHandler\n", this->m_poFb->getInstanceName());
+
 				if (!ExistInQueue(moData->validDateTime))//NOTE: Don`t register new interrupt if we have already another interrupted  message inside of replication queue
 				{
-					//m_poFb->m_Blocked = true;
+					m_poFb->m_Blocked = true;
 					m_poFb->interruptCommFB(this);//we successfully Called CommFB intrrupt for registered FB
+					FORTE_TRACE("M2OReplication: Intrrupt for Function Block (%s) registered successfully\n", this->m_poFb->getInstanceName());
 				}
 				repQueue.insert(std::pair<TForteUInt64,CMOData*>(moData->validDateTime,moData));//we successfully inserted data inside of repQueue
-				//fprintf(stderr, ": T#%ld%ldms: ", CTimerHandler::sm_poFORTETimer->getForteTime().m_nUpperValue, CTimerHandler::sm_poFORTETimer->getForteTime().m_nLowerValue);
-				DEVLOG_INFO("M2OReplication: Function Block (%s) inserted new message in replication queue (T#%ldms)\n", this->m_poFb->getInstanceName() , (moData->validDateTime));
+				FORTE_TRACE("M2OReplication: Function Block (%s) inserted in replication queue\n", this->m_poFb->getInstanceName());
 
 				eRetVal = e_InitOk;
 				m_unBufFillSize += eRetVal;
@@ -119,7 +119,7 @@ EComResponse CMOReplicationlayer::recvData(const void *pa_pvData, unsigned int p
 			else
 			{
 				if (this->m_poFb->getComServiceType() == e_Subscriber)
-					DEVLOG_INFO("M2OReplication:Function Block (%s) discarded new message \n", this->m_poFb->getInstanceName());
+					FORTE_TRACE("M2OReplication:None-Voted Function Block is:(%s) \n", this->m_poFb->getInstanceName());
 				eRetVal = m_poTopLayer->recvData(static_cast<const TForteByte*>(recvData)+nBuf, pa_unSize - nBuf);
 
 			}
@@ -137,15 +137,15 @@ EComResponse CMOReplicationlayer::processInterrupt()
 	if (e_ProcessDataOk == m_eInterruptResp){
 		switch (m_eConnectionState){
 		case e_Connected:
-			if ((0 < m_unBufFillSize) && 0 != m_poTopLayer)// && !(this->m_poFb->m_Blocked))
+			if ((0 < m_unBufFillSize) && 0 != m_poTopLayer && !(this->m_poFb->m_Blocked))
 			{
-				DEVLOG_INFO("M2OReplication:Voted Function Block (%s) processed interrupt (Size of queue:%d)\n", this->m_poFb->getInstanceName(),repQueue.size());
 				CMOData moData = Voter();//select data from replication queue regarding of voting alghoritm
+				FORTE_TRACE("M2OReplication:Voted Function Block (%s) processed intrrupt\n", this->m_poFb->getInstanceName());
 				m_eInterruptResp = m_poTopLayer->recvData(static_cast<const TForteByte*>(moData.pvData) + nBuf, moData.unSize - nBuf);
 				m_unBufFillSize = 0;
 			}
-		/*	else
-				m_eInterruptResp = e_Blocked;*/
+			else
+				m_eInterruptResp = e_Blocked;
 			break;
 		case e_Disconnected:
 		case e_Listening:

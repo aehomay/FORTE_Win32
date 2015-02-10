@@ -102,13 +102,12 @@ EComResponse COMReplicationlayer::recvData(const void *pa_pvData, unsigned int p
 				sTimeFBListEntry->m_eType = e_SingleShot;
 				sTimeFBListEntry->m_poTimedFB = m_poFb;
 				CTimerHandler::sm_poFORTETimer->registerTimedFB(sTimeFBListEntry, *omData->Offset);//we successfully received data and registered FB into TimedFB list
-				//DEVLOG_INFO("\nO2MReplication: Function Block (%s) registered in CTimeHandler\n", this->m_poFb->getInstanceName());
-				//fprintf(stderr, ": T#%ld%ldms: ", CTimerHandler::sm_poFORTETimer->getForteTime().m_nUpperValue, CTimerHandler::sm_poFORTETimer->getForteTime().m_nLowerValue);
-				//m_poFb->m_Blocked = true;
+				FORTE_TRACE("\nO2MReplication: Function Block (%s) registered in CTimeHandler\n", this->m_poFb->getInstanceName());
+				m_poFb->m_Blocked = true;
 				m_poFb->interruptCommFB(this);//we successfully Called CommFB intrrupt for registered FB
-				//DEVLOG_INFO("O2MReplication: Intrrupt for Function Block (%s) registered successfully\n", this->m_poFb->getInstanceName());
+				FORTE_TRACE("O2MReplication: Intrrupt for Function Block (%s) registered successfully\n", this->m_poFb->getInstanceName());
 				repQueue.push(omData);//we successfully inserted data inside of repQueue
-				DEVLOG_INFO("O2MReplication: Function Block (%s) inserted new message in replication queue\n", this->m_poFb->getInstanceName());
+				FORTE_TRACE("O2MReplication: Function Block (%s) inserted in replication queue\n", this->m_poFb->getInstanceName());
 
 				eRetVal = e_InitOk;
 				m_unBufFillSize += eRetVal;
@@ -131,18 +130,17 @@ EComResponse COMReplicationlayer::processInterrupt()
 	if (e_ProcessDataOk == m_eInterruptResp){
 		switch (m_eConnectionState){
 		case e_Connected:
-			if ((0 < m_unBufFillSize) && 0 != m_poTopLayer)// && !(this->m_poFb->m_Blocked))
+			if ((0 < m_unBufFillSize) && 0 != m_poTopLayer && !(this->m_poFb->m_Blocked))
 			{
 				//Fetch the first packet and send it to button layer
 				omData = repQueue.front();
 				repQueue.pop();
-				DEVLOG_INFO("O2MReplication: Function Block (%s) processed interrupt\n", this->m_poFb->getInstanceName());
+				FORTE_TRACE("O2MReplication: Function Block (%s) processed intrrupt\n", this->m_poFb->getInstanceName());
 				m_eInterruptResp = m_poTopLayer->recvData(static_cast<const TForteByte*>(omData->pvData) + nBuf, omData->unSize - nBuf);
 				m_unBufFillSize = 0;
 			}
-			/*else
-				m_eInterruptResp = e_Blocked;			*/
-			break;
+			else
+				m_eInterruptResp = e_Blocked;			break;
 		case e_Disconnected:
 		case e_Listening:
 		case e_ConnectedAndListening:
